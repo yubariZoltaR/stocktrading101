@@ -4,6 +4,7 @@ import urllib, pymysql, calendar, time, json
 from urllib.request import urlopen
 from datetime import datetime
 from threading import Timer
+import requests
 
 
 class DBUpdater:
@@ -15,24 +16,24 @@ class DBUpdater:
         with self.conn.cursor() as curs:
             sql = """
             CREATE TABLE IF NOT EXISTS company_info (
-            CODE VARCHAR(20),
+            code VARCHAR(20),
             company VARCHAR(40), 
             last_update DATE,
-            PRIMARY KEY (CODE))
+            PRIMARY KEY (code))
 	"""
             curs.execute(sql)
             sql = """
 
             CREATE TABLE IF NOT EXISTS daily_price (
-            CODE VARCHAR(20),
-            DATE DATE,
-            OPEN BIGINT(20),
+            code VARCHAR(20),
+            date DATE,
+            open BIGINT(20),
             high BIGINT(20),
             low BIGINT(20),
             close BIGINT(20),
             diff BIGINT(20),
             volume BIGINT(20),
-            PRIMARY KEY (CODE, DATE))
+            PRIMARY KEY (code, date))
         """
 
             curs.execute(sql)
@@ -62,7 +63,7 @@ class DBUpdater:
         sql = "SELECT * FROM company_info"
         df = pd.read_sql(sql, self.conn)
         for idx in range(len(df)):
-            self.codes[df['CODE'].values[idx]] = df['company'].values[idx]
+            self.codes[df['code'].values[idx]] = df['company'].values[idx]
         with self.conn.cursor() as curs:
             sql = "SELECT max(last_update) FROM company_info"
             curs.execute(sql)
@@ -79,7 +80,7 @@ class DBUpdater:
                     curs.execute(sql)
                     self.codes[code] = company
                     tmnow = datetime.now().strftime('%Y-%m-%d %H:%M')
-                    print(f"[{tmnow}] {idx:04d} REPLACE INTO company_info "\
+                    print(f"[{tmnow}] {idx+1:04d} REPLACE INTO company_info "\
                           f"VALUES ({code}, {company}, {today})")
                 self.conn.commit()
                 print('')
@@ -91,21 +92,20 @@ class DBUpdater:
         """네이버금융에서 시세 읽어서 데이터프레임 변환"""
         try:
             url = f"http://finance.naver.com/item/sise_day.nhn?code={code}"
-            with urlopen(url) as doc:
-                if doc is None:
+            html = BeautifulSoup(requests.get(url,
+                headers={'User-agent': 'Mozilla/5.0'}).text, "lxml")
+            pgrr = html.find("td", class_="pgRR")
+            if pgrr is None:
                     return None
-                html = BeautifulSoup(doc,"lxml")
-                pgrr = html.find("td", class_="pgRR")
-                if pgrr is None:
-                    return None
-                s = str(pgrr.a["href"]).split('=')
-                lastpage = s[-1]
+            s = str(pgrr.a["href"]).split('=')
+            lastpage = s[-1]
 
             df = pd.DataFrame()
             pages = min(int(lastpage), pages_to_fetch)
             for page in range(1, pages + 1) :
                 pg_url = '{}&page={}'.format(url,page)
-                df = df.append(pd.read_html(pg_url, header=0)[0])
+                df = df.append(pd.read_html(requests.get(pg_url,
+                    headers={'User-agent': 'Mozilla/5.0'}).text)[0])
                 tmnow = datetime.now().strftime('%Y-%m-%d %H:%M')
                 print('[{}] {} ({}) : {:04d}/{:04d}) pages are downloading ...'.
                       format(tmnow, company, code, page, pages), end="\r")
@@ -113,7 +113,7 @@ class DBUpdater:
             df = df.rename(columns={'날짜':'date', '종가':'close','전일비':'diff'
                                     ,'시가':'open','고가':'high','저가':'low',
                                     '거래량':'volume'})
-            df['date'] = df['date'].str.replace('.','-')
+            df['date'] = df['date'].replace('.','-')
             df = df.dropna()
             df[['close','diff','open','high','low','volume']] = df[['close',
                 'diff','open','high','low','volume']].astype(int)
@@ -128,14 +128,14 @@ class DBUpdater:
         """네이버금융에서 주식 시세를 네이버로부터 읽어서 DB 업데이트"""
         with self.conn.cursor() as curs:
             for r in df.itertuples():
-                sql = f"REPLACE INTO daily_price VALUES ('{code}',"\
-                      f"'{r.date},{r.open},{r.high},{r.low},{r.close},"\
-                      f"{r.diff},{r.volume})"
+                sql = f"REPLACE INTO daily_price VALUES ('{code}', "\
+                    f"'{r.date}', {r.open}, {r.high}, {r.low}, {r.close}, "\
+                    f"{r.diff}, {r.volume})"
                 curs.execute(sql)
             self.conn.commit()
             print('[{}] #{:04d} {} ({}) : {} rows > REPLACE INTO daily_'\
-                  'price [OK]'.format(datetime.now().strftime('%Y-%m-%d'\
-                    ' %H:%M'), num+1, company, code, len(df)))
+                'price [OK]'.format(datetime.now().strftime('%Y-%m-%d'\
+                ' %H:%M'), num+1, company, code, len(df)))
             
 
     def update_daily_price(self, pages_to_fetch):
@@ -169,7 +169,7 @@ class DBUpdater:
             tmnext = tmnow.replace(month=tmnow.month+1, hour=17, minute=0,
                                    second=0)
         else:
-            tmnoex = tmnow.replace(day=tmnow.day+1, hour=17, minute=0,
+            tmnext = tmnow.replace(day=tmnow.day+1, hour=17, minute=0,
                                    second=0)
 
         tmdiff = tmnext - tmnow

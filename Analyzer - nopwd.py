@@ -22,7 +22,7 @@ class MarketDB:
         sql = "SELECT * FROM company_info"
         df = pd.read_sql(sql, self.conn)
         for idx in range(len(df)):
-            self.codes[df['CODE'].values[idx]] = df['company'].values[idx]
+            self.codes[df['code'].values[idx]] = df['company'].values[idx]
 
     def get_daily_price(self, code, start_date=None, end_date=None):
         """KRX 종목별 시세를 데이터프레임 형태로 변환
@@ -39,7 +39,7 @@ class MarketDB:
             if start_lst[0] == '':
                 start_lst = start_lst[1:]
             start_year = int(start_lst[0])
-            start_month = int(statr_lst[1])
+            start_month = int(start_lst[1])
             start_day = int(start_lst[2])
             if start_year < 1900 or start_year > 2200:
                 print(f"ValueError: start_year({start_year:d}) is wrong.")
@@ -73,7 +73,7 @@ class MarketDB:
                 return
             end_day=f"{end_year:04d}-{end_month:02d}-{end_day:02d}"
 
-        codes_key = list(self.codes.keys())
+        codes_keys = list(self.codes.keys())
         codes_values = list(self.codes.values())
         if code in codes_keys:
             pass
@@ -85,7 +85,7 @@ class MarketDB:
         
         sql = f"SELECT * FROM daily_price WHERE code = '{code}'"\
               f" and date >= '{start_date}' and date <= '{end_date}'"
-        df = pd.read_sql(sql, sql.conn)
+        df = pd.read_sql(sql, self.conn)
         df.index = df['date']
         return df
     
